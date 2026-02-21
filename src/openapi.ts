@@ -784,7 +784,7 @@ export function toOpenAPISchema(
 
 		if (
 			excludeTags &&
-			hooks.detail.tags?.some((tag) => excludeTags?.includes(tag))
+			hooks.detail?.tags?.some((tag) => excludeTags?.includes(tag))
 		)
 			continue
 
@@ -1121,3 +1121,4 @@ export const withHeaders = (schema: TSchema, headers: TProperties) =>
 	Object.assign(schema, {
 		headers: headers
 	})
+

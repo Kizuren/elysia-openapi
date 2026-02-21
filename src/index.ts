@@ -9,6 +9,46 @@ import type { OpenAPIV3 } from 'openapi-types'
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { ElysiaOpenAPIConfig } from './types'
 
+export interface OpenAPIMethods {
+	/**
+	 * Set exclusion configuration
+	 */
+	setExclusion(newExclude?: ElysiaOpenAPIConfig['exclude']): OpenAPIMethods
+	/**
+	 * Add paths to exclude from OpenAPI documentation
+	 */
+	addExcludedPaths(...paths: (string | RegExp)[]): OpenAPIMethods
+	/**
+	 * Remove paths from exclusion list
+	 */
+	removeExcludedPaths(...paths: (string | RegExp)[]): OpenAPIMethods
+	/**
+	 * Add tags to exclude from OpenAPI documentation
+	 */
+	addExcludedTags(...tags: string[]): OpenAPIMethods
+	/**
+	 * Remove tags from exclusion list
+	 */
+	removeExcludedTags(...tags: string[]): OpenAPIMethods
+	/**
+	 * Add HTTP methods to exclude from OpenAPI documentation
+	 */
+	addExcludedMethods(...methods: string[]): OpenAPIMethods
+	/**
+	 * Remove HTTP methods from exclusion list
+	 */
+	removeExcludedMethods(...methods: string[]): OpenAPIMethods
+	/**
+	 * Get current exclusion configuration
+	 */
+	getExclusion(): ElysiaOpenAPIConfig['exclude'] | undefined
+}
+
+// This is needed, so typescript can work
+export type ElysiaWithOpenAPI<T extends Elysia = Elysia> = T & {
+	openapi: OpenAPIMethods
+}
+
 function isCloudflareWorker() {
 	try {
 		// Check for the presence of caches.default, which is a global in Workers
@@ -66,6 +106,14 @@ export const openapi = <
 
 	let totalRoutes = 0
 	let cachedSchema: OpenAPIV3.Document | undefined
+	
+	// Mutable exclude configuration
+	let currentExclude: ElysiaOpenAPIConfig['exclude'] = exclude ? { ...exclude } : undefined
+	
+	const invalidateCache = () => {
+		cachedSchema = undefined
+		totalRoutes = 0
+	}
 
 	const toFullSchema = ({
 		paths,
@@ -74,10 +122,10 @@ export const openapi = <
 		return (cachedSchema = {
 			openapi: '3.0.3',
 			...documentation,
-			tags: !exclude?.tags
+			tags: !currentExclude?.tags
 				? documentation.tags
 				: documentation.tags?.filter(
-						(tag) => !exclude.tags?.includes(tag.name)
+						(tag) => !currentExclude!.tags?.includes(tag.name)
 					),
 			info: {
 				title: 'Elysia Documentation',
@@ -99,10 +147,102 @@ export const openapi = <
 		})
 	}
 
+	const openapiMethods = {
+		/**
+		 * Set exclusion configuration
+		 */
+		setExclusion(newExclude: ElysiaOpenAPIConfig['exclude']) {
+			currentExclude = newExclude ? { ...newExclude } : undefined
+			invalidateCache()
+			return openapiMethods
+		},
+		/**
+		 * Add paths to exclude
+		 */
+		addExcludedPaths(...paths: (string | RegExp)[]) {
+			if (!currentExclude) currentExclude = {}
+			const currentPaths = Array.isArray(currentExclude.paths)
+				? currentExclude.paths
+				: currentExclude.paths
+					? [currentExclude.paths]
+					: []
+			currentExclude.paths = [...currentPaths, ...paths]
+			invalidateCache()
+			return openapiMethods
+		},
+		/**
+		 * Remove paths from exclude list
+		 */
+		removeExcludedPaths(...paths: (string | RegExp)[]) {
+			if (!currentExclude?.paths) return openapiMethods
+			const currentPaths = Array.isArray(currentExclude.paths)
+				? currentExclude.paths
+				: [currentExclude.paths]
+			currentExclude.paths = currentPaths.filter(
+				(p) => !paths.some((path) => 
+					p instanceof RegExp && path instanceof RegExp
+						? p.source === path.source && p.flags === path.flags
+						: p === path
+				)
+			)
+			invalidateCache()
+			return openapiMethods
+		},
+		/**
+		 * Add tags to exclude
+		 */
+		addExcludedTags(...tags: string[]) {
+			if (!currentExclude) currentExclude = {}
+			currentExclude.tags = [...(currentExclude.tags ?? []), ...tags]
+			invalidateCache()
+			return openapiMethods
+		},
+		/**
+		 * Remove tags from exclude list
+		 */
+		removeExcludedTags(...tags: string[]) {
+			if (!currentExclude?.tags) return openapiMethods
+			currentExclude.tags = currentExclude.tags.filter(
+				(t) => !tags.includes(t)
+			)
+			invalidateCache()
+			return openapiMethods
+		},
+		/**
+		 * Add methods to exclude
+		 */
+		addExcludedMethods(...methods: string[]) {
+			if (!currentExclude) currentExclude = {}
+			currentExclude.methods = [...(currentExclude.methods ?? []), ...methods]
+			invalidateCache()
+			return openapiMethods
+		},
+		/**
+		 * Remove methods from exclude list
+		 */
+		removeExcludedMethods(...methods: string[]) {
+			if (!currentExclude?.methods) return openapiMethods
+			currentExclude.methods = currentExclude.methods.filter(
+				(m) => !methods.includes(m)
+			)
+			invalidateCache()
+			return openapiMethods
+		},
+		/**
+		 * Get current exclusion configuration
+		 */
+		getExclusion() {
+			return currentExclude ? { ...currentExclude } : undefined
+		}
+	}
+
 	const app = new Elysia({ name: '@elysiajs/openapi' })
 
-	app.use((app) => {
-		if (provider === null) return app
+	// Attach openapi methods to the plugin instance
+	;(app as any).openapi = openapiMethods
+
+	app.use((parentApp) => {
+		if (provider === null) return parentApp
 
 		const page = () =>
 			new Response(
@@ -125,12 +265,12 @@ export const openapi = <
 							},
 							embedSpec
 								? JSON.stringify(
-										totalRoutes === app.routes.length
+										totalRoutes === parentApp.routes.length
 											? cachedSchema
 											: toFullSchema(
 													toOpenAPISchema(
-														app,
-														exclude,
+														parentApp,
+														currentExclude,
 														references,
 														mapJsonSchema
 													)
@@ -145,7 +285,7 @@ export const openapi = <
 				}
 			)
 
-		return app.get(
+		return parentApp.get(
 			path,
 			embedSpec || isCloudflareWorker() ? page : page(),
 			{
@@ -154,30 +294,31 @@ export const openapi = <
 				}
 			}
 		)
-	}).get(
-		specPath,
-		function openAPISchema(): OpenAPIV3.Document {
-			if (totalRoutes === app.routes.length && cachedSchema)
-				return cachedSchema
+	})
+		.get(
+			specPath,
+			function openAPISchema(): OpenAPIV3.Document {
+				if (totalRoutes === app.routes.length && cachedSchema)
+					return cachedSchema
 
-			totalRoutes = app.routes.length
+				totalRoutes = app.routes.length
 
-			return toFullSchema(
-				toOpenAPISchema(app, exclude, references, mapJsonSchema)
-			)
-		},
-		{
-			error({ error }) {
-				console.log('[@elysiajs/openapi] error at specPath')
-				console.warn(error)
+				return toFullSchema(
+					toOpenAPISchema(app, currentExclude, references, mapJsonSchema)
+				)
 			},
-			detail: {
-				hide: true
+			{
+				error({ error }) {
+					console.log('[@elysiajs/openapi] error at specPath')
+					console.warn(error)
+				},
+				detail: {
+					hide: true
+				}
 			}
-		}
-	)
+		)
 
-	return app
+	return app as ElysiaWithOpenAPI
 }
 
 export { fromTypes } from './gen'
