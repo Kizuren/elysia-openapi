@@ -102,7 +102,7 @@ export const openapi = <
 		...documentation.info
 	}
 
-	const relativePath = specPath.startsWith('/') ? specPath.slice(1) : specPath
+	const absolutePath = specPath.startsWith('/') ? specPath : `/${specPath}`
 
 	let totalRoutes = 0
 	let cachedSchema: OpenAPIV3.Document | undefined
@@ -248,7 +248,7 @@ export const openapi = <
 			new Response(
 				provider === 'swagger-ui'
 					? SwaggerUIRender(info, {
-							url: relativePath,
+							url: absolutePath,
 							dom_id: '#swagger-ui',
 							version: 'latest',
 							autoDarkMode: true,
@@ -257,7 +257,7 @@ export const openapi = <
 					: ScalarRender(
 							info,
 							{
-								url: relativePath,
+								url: absolutePath,
 								version: 'latest',
 								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
 								...(scalar as ApiReferenceConfiguration),
