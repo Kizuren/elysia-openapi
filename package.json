@@ -1,6 +1,6 @@
 {
-    "name": "elysia-openapi",
-    "version": "1.4.14",
+    "name": "@kizuren/elysia-openapi",
+    "version": "1.4.15",
     "description": "Plugin for Elysia to auto-generate API documentation",
     "author": {
         "name": "kizuren",
@@ -58,12 +58,12 @@
         "swagger",
         "scalar"
     ],
-    "homepage": "https://github.com/kizuren/elysia-openapi",
+    "homepage": "https://github.com/Kizuren/elysia-openapi",
     "repository": {
         "type": "git",
-        "url": "https://github.com/kizuren/elysia-openapi"
+        "url": "https://github.com/Kizuren/elysia-openapi"
     },
-    "bugs": "https://github.com/kizuren/elysia-openapi/issues",
+    "bugs": "https://github.com/Kizuren/elysia-openapi/issues",
     "license": "MIT",
     "scripts": {
         "dev": "bun run --watch example/index.ts",

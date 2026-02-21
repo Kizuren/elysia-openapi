@@ -43,6 +43,7 @@ jobs:
       - name: Test
         run: bun run test
 
-      - name: 'Publish'
-        run: |
-          NODE_AUTH_TOKEN="" npm publish --provenance --access=public
+      - name: Publish
+        run: npm publish --provenance --access=public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
