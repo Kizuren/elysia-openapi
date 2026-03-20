@@ -145,6 +145,82 @@ describe('Swagger', () => {
 		expect(res.trim().includes(expected.trim())).toBe(true)
 	})
 
+	it('supports one UI with multiple document sources', async () => {
+		const app = new Elysia().use(
+			openapi({
+				path: '/docs',
+				provider: 'scalar',
+				documentations: [
+					{
+						name: 'Public API',
+						specPath: '/docs/public.json',
+						documentation: {
+							info: {
+								title: 'Public API',
+								version: '1.0.0'
+							}
+						}
+					},
+					{
+						name: 'Internal API',
+						specPath: '/docs/internal.json',
+						documentation: {
+							info: {
+								title: 'Internal API',
+								version: '1.0.0'
+							}
+						}
+					}
+				]
+			})
+		)
+
+		await app.modules
+
+		const page = await app.handle(req('/docs')).then((x) => x.text())
+		expect(page.includes('/docs/public.json')).toBe(true)
+		expect(page.includes('/docs/internal.json')).toBe(true)
+		expect(page.includes('Public API')).toBe(true)
+		expect(page.includes('Internal API')).toBe(true)
+		expect(page.includes('"sources"')).toBe(true)
+		expect(page.includes('"slug":"public-api"')).toBe(true)
+
+		const publicSpec = await app
+			.handle(req('/docs/public.json'))
+			.then((x) => x.json())
+		expect(publicSpec.openapi).toBe('3.0.3')
+		expect(publicSpec.info.title).toBe('Public API')
+
+		const internalSpec = await app
+			.handle(req('/docs/internal.json'))
+			.then((x) => x.json())
+		expect(internalSpec.openapi).toBe('3.0.3')
+		expect(internalSpec.info.title).toBe('Internal API')
+	})
+
+	it('supports provider-less UI with custom spec path', async () => {
+		const app = new Elysia().use(
+			openapi({
+				provider: null,
+				documentations: [
+					{
+						specPath: '/docs/hidden/openapi.json'
+					}
+				]
+			})
+		)
+
+		await app.modules
+
+		const hiddenPage = await app.handle(req('/openapi'))
+		expect(hiddenPage.status).toBe(404)
+
+		const spec = await app
+			.handle(req('/docs/hidden/openapi.json'))
+			.then((x) => x.json())
+		expect(spec.openapi).toBe('3.0.3')
+	})
+
 	it('should not return content response when using Void type', async () => {
 		const app = new Elysia().use(openapi()).get('/void', () => {}, {
 			response: {

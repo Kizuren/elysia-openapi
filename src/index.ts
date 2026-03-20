@@ -85,6 +85,7 @@ export const openapi = <
 	path = '/openapi' as Path,
 	provider = 'scalar',
 	specPath = `${path}/json`,
+	documentations,
 	documentation = {},
 	exclude,
 	swagger,
@@ -102,49 +103,119 @@ export const openapi = <
 		...documentation.info
 	}
 
-	const absolutePath = specPath.startsWith('/') ? specPath : `/${specPath}`
+	const toAbsolutePath = (value: string) =>
+		value.startsWith('/') ? value : `/${value}`
+
+	const toSlug = (value: string) =>
+		value
+			.toLowerCase()
+			.trim()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+
+	const normalizedDocumentations = (() => {
+		const list = Array.isArray(documentations)
+			? documentations
+			: documentations
+				? [documentations]
+				: [
+						{
+							path,
+							provider,
+							specPath,
+							swagger,
+							scalar,
+							embedSpec
+						}
+					]
+
+		return list.map((documentationConfig, index) => {
+			const documentationSpecPath = documentationConfig.specPath ?? `${path}/json`
+			const documentationInfo = documentationConfig.documentation?.info
+			const defaultName =
+				documentationInfo?.title || `Document ${index + 1}`
+
+			return {
+				name: documentationConfig.name ?? defaultName,
+				specPath: documentationSpecPath,
+				absoluteSpecPath: toAbsolutePath(documentationSpecPath),
+				documentation: documentationConfig.documentation,
+				exclude: documentationConfig.exclude,
+				references: documentationConfig.references,
+				mapJsonSchema: documentationConfig.mapJsonSchema
+			}
+		})
+	})()
 
 	let totalRoutes = 0
-	let cachedSchema: OpenAPIV3.Document | undefined
+	const cachedSchemas = new Map<string, OpenAPIV3.Document>()
 	
 	// Mutable exclude configuration
 	let currentExclude: ElysiaOpenAPIConfig['exclude'] = exclude ? { ...exclude } : undefined
 	
 	const invalidateCache = () => {
-		cachedSchema = undefined
+		cachedSchemas.clear()
 		totalRoutes = 0
+	}
+
+	const mergeExclude = (
+		globalExclude: ElysiaOpenAPIConfig['exclude'],
+		localExclude: ElysiaOpenAPIConfig['exclude']
+	): ElysiaOpenAPIConfig['exclude'] => {
+		if (!globalExclude && !localExclude) return undefined
+
+		const toArray = <T>(value?: T | T[]) =>
+			value === undefined ? [] : Array.isArray(value) ? value : [value]
+
+		const globalPaths = toArray(globalExclude?.paths)
+		const localPaths = toArray(localExclude?.paths)
+
+		return {
+			methods: [...(globalExclude?.methods ?? []), ...(localExclude?.methods ?? [])],
+			tags: [...(globalExclude?.tags ?? []), ...(localExclude?.tags ?? [])],
+			paths: [...globalPaths, ...localPaths],
+			staticFile:
+				localExclude?.staticFile === undefined
+					? globalExclude?.staticFile
+					: localExclude.staticFile
+		}
 	}
 
 	const toFullSchema = ({
 		paths,
 		components: { schemas }
-	}: ReturnType<typeof toOpenAPISchema>): OpenAPIV3.Document => {
-		return (cachedSchema = {
+	}: ReturnType<typeof toOpenAPISchema>,
+	resolvedDocumentation: Partial<OpenAPIV3.Document>,
+	resolvedExclude: ElysiaOpenAPIConfig['exclude']
+	): OpenAPIV3.Document => {
+		const safeDocumentation = resolvedDocumentation ?? {}
+
+		return {
 			openapi: '3.0.3',
-			...documentation,
-			tags: !currentExclude?.tags
-				? documentation.tags
-				: documentation.tags?.filter(
-						(tag) => !currentExclude!.tags?.includes(tag.name)
+			...safeDocumentation,
+			tags: !resolvedExclude?.tags
+				? safeDocumentation.tags
+				: safeDocumentation.tags?.filter(
+						(tag) => !resolvedExclude.tags?.includes(tag.name)
 					),
 			info: {
 				title: 'Elysia Documentation',
 				description: 'Development documentation',
 				version: '0.0.0',
-				...documentation.info
+				...safeDocumentation.info
 			},
 			paths: {
 				...paths,
-				...documentation.paths
+				...safeDocumentation.paths
 			},
 			components: {
-				...documentation.components,
+				...safeDocumentation.components,
 				schemas: {
 					...schemas,
-					...(documentation.components?.schemas as any)
+					...(safeDocumentation.components?.schemas as any)
 				}
 			}
-		})
+		}
 	}
 
 	const openapiMethods = {
@@ -241,49 +312,75 @@ export const openapi = <
 	// Attach openapi methods to the plugin instance
 	;(app as any).openapi = openapiMethods
 
-	app.use((parentApp) => {
+	const renderDocumentationPage = (
+		parentApp: Elysia,
+		firstDocumentation: (typeof normalizedDocumentations)[number]
+	) => {
+		const scalarBaseOptions: any = {
+			version: 'latest',
+			cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
+			...(scalar as ApiReferenceConfiguration),
+			_integration: 'elysiajs'
+		}
+		let scalarOptions: any = scalarBaseOptions
+
+		if (normalizedDocumentations.length > 1) {
+			// Use array-of-configs format for better compatibility across Scalar versions.
+			scalarOptions.sources = normalizedDocumentations.map(
+				(documentationConfig, index) => ({
+					
+					title: documentationConfig.name,
+					slug: toSlug(documentationConfig.name),
+					url: documentationConfig.absoluteSpecPath,
+					default: index === 0
+				})
+			)
+		} else {
+			scalarOptions.url = firstDocumentation.absoluteSpecPath
+		}
+
+		return new Response(
+			provider === 'swagger-ui'
+				? SwaggerUIRender(info, {
+						url: firstDocumentation.absoluteSpecPath,
+						dom_id: '#swagger-ui',
+						version: 'latest',
+						autoDarkMode: true,
+						...swagger
+				  })
+				: ScalarRender(
+						info,
+						scalarOptions,
+						embedSpec && normalizedDocumentations.length === 1
+							? JSON.stringify(
+									totalRoutes === parentApp.routes.length
+										? cachedSchemas.get(firstDocumentation.specPath)
+										: toFullSchema(
+												toOpenAPISchema(
+													parentApp,
+													currentExclude,
+													references,
+													mapJsonSchema
+												),
+												documentation,
+												currentExclude
+										  )
+							  )
+							: undefined
+				  ),
+			{
+				headers: {
+					'content-type': 'text/html; charset=utf8'
+				}
+			}
+		)
+	}
+
+	let plugin: any = app.use((parentApp) => {
 		if (provider === null) return parentApp
 
-		const page = () =>
-			new Response(
-				provider === 'swagger-ui'
-					? SwaggerUIRender(info, {
-							url: absolutePath,
-							dom_id: '#swagger-ui',
-							version: 'latest',
-							autoDarkMode: true,
-							...swagger
-						})
-					: ScalarRender(
-							info,
-							{
-								url: absolutePath,
-								version: 'latest',
-								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
-								...(scalar as ApiReferenceConfiguration),
-								_integration: 'elysiajs'
-							},
-							embedSpec
-								? JSON.stringify(
-										totalRoutes === parentApp.routes.length
-											? cachedSchema
-											: toFullSchema(
-													toOpenAPISchema(
-														parentApp,
-														currentExclude,
-														references,
-														mapJsonSchema
-													)
-												)
-									)
-								: undefined
-						),
-				{
-					headers: {
-						'content-type': 'text/html; charset=utf8'
-					}
-				}
-			)
+		const firstDocumentation = normalizedDocumentations[0]
+		const page = () => renderDocumentationPage(parentApp, firstDocumentation)
 
 		return parentApp.get(
 			path,
@@ -295,20 +392,58 @@ export const openapi = <
 			}
 		)
 	})
-		.get(
-			specPath,
+
+	const uniqueSpecPaths = [...new Set(normalizedDocumentations.map((x) => x.specPath))]
+
+	for (const resolvedSpecPath of uniqueSpecPaths) {
+		const documentationConfig = normalizedDocumentations.find(
+			(config) => config.specPath === resolvedSpecPath
+		)!
+
+		plugin = plugin.get(
+			resolvedSpecPath,
 			function openAPISchema(): OpenAPIV3.Document {
-				if (totalRoutes === app.routes.length && cachedSchema)
-					return cachedSchema
+				if (totalRoutes === app.routes.length) {
+					const cachedSchema = cachedSchemas.get(resolvedSpecPath)
+					if (cachedSchema) return cachedSchema
+				}
 
 				totalRoutes = app.routes.length
 
-				return toFullSchema(
-					toOpenAPISchema(app, currentExclude, references, mapJsonSchema)
+				const resolvedExclude = mergeExclude(
+					currentExclude,
+					documentationConfig.exclude
 				)
+				const resolvedDocumentation: Partial<OpenAPIV3.Document> = {
+					...documentation,
+					...documentationConfig.documentation,
+					info: {
+						...documentation.info,
+						...documentationConfig.documentation?.info
+					} as any
+				}
+				const resolvedReferences =
+					documentationConfig.references ?? references
+				const resolvedMapJsonSchema =
+					documentationConfig.mapJsonSchema ?? mapJsonSchema
+
+				const schema = toFullSchema(
+					toOpenAPISchema(
+						app,
+						resolvedExclude,
+						resolvedReferences,
+						resolvedMapJsonSchema
+					),
+					resolvedDocumentation as Partial<OpenAPIV3.Document>,
+					resolvedExclude
+				)
+
+				cachedSchemas.set(resolvedSpecPath, schema)
+
+				return schema
 			},
 			{
-				error({ error }) {
+				error({ error }: { error: unknown }) {
 					console.log('[@elysiajs/openapi] error at specPath')
 					console.warn(error)
 				},
@@ -317,8 +452,9 @@ export const openapi = <
 				}
 			}
 		)
+	}
 
-	return app as ElysiaWithOpenAPI
+	return plugin as ElysiaWithOpenAPI
 }
 
 export { fromTypes } from './gen'

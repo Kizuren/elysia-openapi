@@ -124,20 +124,26 @@ const elysiaCSS = `.light-mode {
 }`
 
 export const ScalarRender = (
-	info: OpenAPIV3.InfoObject,
-	config: NonNullable<ElysiaOpenAPIConfig['scalar']>,
-	embedSpec?: string
-) => `<!doctype html>
+    info: OpenAPIV3.InfoObject,
+    config: NonNullable<ElysiaOpenAPIConfig['scalar']>,
+    embedSpec?: string
+) => {
+    const payload = {
+        ...config,
+        content: embedSpec ?? (config as any).content
+    };
+
+    return `<!doctype html>
 <html>
   <head>
     <title>${info.title}</title>
     <meta
         name="description"
-        content="${info.description}"
+        content="${info.description || ''}"
     />
     <meta
         name="og:description"
-        content="${info.description}"
+        content="${info.description || ''}"
     />
     <meta charset="utf-8" />
     <meta
@@ -149,22 +155,24 @@ export const ScalarRender = (
       }
     </style>
     <style>
-      ${config.customCss ?? elysiaCSS}
+      ${(config as any).customCss ?? elysiaCSS}
     </style>
   </head>
   <body>
-    <script
-      id="api-reference"
-      data-configuration='${JSON.stringify(
-			Object.assign(
-				config,
-				{
-					content: embedSpec
-				}
-			)
-		)}'
-    >
+    <div id="scalar-container"></div>
+    <script>
+      var configuration = ${JSON.stringify(payload).replace(/</g, '\\u003c')};
+      var init = setInterval(function() {
+        if (window.Scalar && window.Scalar.createApiReference) {
+          clearInterval(init);
+          window.Scalar.createApiReference(
+            document.getElementById('scalar-container'),
+            configuration
+          );
+        }
+      }, 50);
     </script>
-    <script src="${config.cdn}" crossorigin></script>
+    <script src="${(config as any).cdn}" crossorigin></script>
   </body>
-</html>`
+</html>`;
+}

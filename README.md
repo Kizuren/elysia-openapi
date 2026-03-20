@@ -86,6 +86,18 @@ OpenAPI documentation frontend between:
 - [SwaggerUI](https://github.com/swagger-api/swagger-ui)
 - null: disable frontend
 
+## documentations
+Configure multiple OpenAPI documents while keeping a single documentation UI.
+
+Each entry supports:
+- `name`
+- `specPath`
+- `documentation`
+- `exclude`
+
+When `provider` is `scalar`, multiple entries appear in the Scalar source dropdown.
+Each entry registers its own JSON spec route while the UI remains at the single `path`.
+
 ## references
 Additional OpenAPI reference for each endpoint
 

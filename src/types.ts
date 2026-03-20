@@ -7,6 +7,98 @@ export type OpenAPIProvider = 'scalar' | 'swagger-ui' | null
 
 type MaybeArray<T> = T | T[]
 
+export interface OpenAPIDocumentationConfig<Path extends string = string> {
+	/**
+	 * Label shown in Scalar's document selector.
+	 */
+	name?: string
+
+	/**
+	 * The endpoint to expose OpenAPI JSON specification for this document
+	 *
+	 * @default '/${path}/json'
+	 */
+	specPath?: string
+
+	/**
+	 * OpenAPI config override for this document.
+	 */
+	documentation?: Omit<
+		Partial<OpenAPIV3.Document>,
+		| 'x-express-openapi-additional-middleware'
+		| 'x-express-openapi-validation-strict'
+	>
+
+	/**
+	 * Per-document exclusion rules.
+	 */
+	exclude?: ElysiaOpenAPIConfig['exclude']
+
+	/**
+	 * Per-document additional references.
+	 */
+	references?: AdditionalReferences
+
+	/**
+	 * Per-document schema mapper overrides.
+	 */
+	mapJsonSchema?: MapJsonSchema
+
+	/**
+	 * @deprecated Documentation-specific UI path is no longer used.
+	 */
+	path?: Path
+
+	/**
+	 * @deprecated Documentation-specific provider is no longer used.
+	 */
+	provider?: OpenAPIProvider
+
+	/**
+	 * @deprecated Documentation-specific scalar options are no longer used.
+	 */
+	scalar?: Partial<ApiReferenceConfiguration> & {
+		version?: string
+		cdn?: string
+	}
+
+	/**
+	 * @deprecated Documentation-specific swagger options are no longer used.
+	 */
+	swagger?: Omit<
+		Partial<SwaggerUIOptions>,
+		| 'dom_id'
+		| 'dom_node'
+		| 'spec'
+		| 'url'
+		| 'urls'
+		| 'layout'
+		| 'pluginsOptions'
+		| 'plugins'
+		| 'presets'
+		| 'onComplete'
+		| 'requestInterceptor'
+		| 'responseInterceptor'
+		| 'modelPropertyMacro'
+		| 'parameterMacro'
+	> & {
+		theme?:
+			| string
+			| {
+					light: string
+					dark: string
+			  }
+		version?: string
+		autoDarkMode?: boolean
+		cdn?: string
+	}
+
+	/**
+	 * @deprecated Documentation-specific embedSpec is no longer used.
+	 */
+	embedSpec?: boolean
+}
+
 export type MapJsonSchema = { [vendor: string]: Function } & {
 	[vendor in  // schema['~standard'].vendor
 		| 'zod'
@@ -88,13 +180,20 @@ export interface ElysiaOpenAPIConfig<
 	path?: Path
 
 	/**
+	 * Configure multiple OpenAPI documents for a single documentation UI.
+	 *
+	 * For Scalar provider, multiple documents are shown in the source selector dropdown.
+	 */
+	documentations?: MaybeArray<OpenAPIDocumentationConfig>
+
+	/**
 	 * Choose your provider, Scalar or Swagger UI
 	 *
 	 * @default 'scalar'
 	 * @see https://github.com/scalar/scalar
 	 * @see https://github.com/swagger-api/swagger-ui
 	 */
-	provider?: OpenAPIProvider
+	provider?: OpenAPIDocumentationConfig['provider']
 
 	/**
 	 * Additional reference for each endpoint
@@ -108,7 +207,7 @@ export interface ElysiaOpenAPIConfig<
 	 *
 	 * @default false
 	 */
-	embedSpec?: boolean
+	embedSpec?: OpenAPIDocumentationConfig['embedSpec']
 
 	/**
 	 * Mapping function from Standard schema to OpenAPI schema
@@ -131,28 +230,7 @@ export interface ElysiaOpenAPIConfig<
 	 *'
 	 * @see https://github.com/scalar/scalar/blob/main/documentation/configuration.md
 	 */
-	scalar?: ApiReferenceConfiguration & {
-		/**
-		 * Version to use for Scalar cdn bundle
-		 *
-		 * @default 'latest'
-		 * @see https://github.com/scalar/scalar
-		 */
-		version?: string
-		/**
-		 * Optional override to specifying the path for the Scalar bundle
-		 *
-		 * Custom URL or path to locally hosted Scalar bundle
-		 *
-		 * Lease blank to use default jsdeliver.net CDN
-		 *
-		 * @default ''
-		 * @example 'https://unpkg.com/@scalar/api-reference@1.13.10/dist/browser/standalone.js'
-		 * @example '/public/standalone.js'
-		 * @see https://github.com/scalar/scalar
-		 */
-		cdn?: string
-	}
+	scalar?: OpenAPIDocumentationConfig['scalar']
 	/**
 	 * The endpoint to expose OpenAPI JSON specification
 	 *
@@ -165,51 +243,5 @@ export interface ElysiaOpenAPIConfig<
 	 * Currently, options that are defined as functions such as requestInterceptor
 	 * and onComplete are not supported.
 	 */
-	swagger?: Omit<
-		Partial<SwaggerUIOptions>,
-		| 'dom_id'
-		| 'dom_node'
-		| 'spec'
-		| 'url'
-		| 'urls'
-		| 'layout'
-		| 'pluginsOptions'
-		| 'plugins'
-		| 'presets'
-		| 'onComplete'
-		| 'requestInterceptor'
-		| 'responseInterceptor'
-		| 'modelPropertyMacro'
-		| 'parameterMacro'
-	> & {
-		/**
-		 * Custom Swagger CSS
-		 */
-		theme?:
-			| string
-			| {
-					light: string
-					dark: string
-			  }
-
-		/**
-		 * Version to use for swagger cdn bundle
-		 *
-		 * @see unpkg.com/swagger-ui-dist
-		 *
-		 * @default 4.18.2
-		 */
-		version?: string
-
-		/**
-		 * Using poor man dark mode 😭
-		 */
-		autoDarkMode?: boolean
-
-		/**
-		 * Optional override to specifying the path for the Swagger UI bundle
-		 * Custom URL or path to locally hosted Swagger UI bundle
-		 */
-		cdn?: string
-	}
+	swagger?: OpenAPIDocumentationConfig['swagger']
 }
